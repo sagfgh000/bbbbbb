@@ -6,19 +6,18 @@ import uuid
 import threading
 
 app = Flask(__name__)
-CORS(app, origins=["*"])  # Replace * with your Netlify domain in production
+CORS(app, origins=["*"])  # For testing, allow all origins; restrict in production
 
 DOWNLOAD_FOLDER = "downloads"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-# Auto delete function
 def schedule_file_deletion(filepath, delay=60):
     def delete():
         import time
         time.sleep(delay)
         if os.path.exists(filepath):
             os.remove(filepath)
-    threading.Thread(target=delete).start()
+    threading.Thread(target=delete, daemon=True).start()
 
 @app.route("/api/download", methods=["POST"])
 def download():
@@ -30,7 +29,7 @@ def download():
         return jsonify({"error": "Invalid input"}), 400
 
     file_id = str(uuid.uuid4())
-    filename_base = os.path.join(DOWNLOAD_FOLDER, f"{file_id}")
+    filename_base = os.path.join(DOWNLOAD_FOLDER, file_id)
 
     ytdlp_cmd = [
         "yt-dlp",
@@ -48,10 +47,15 @@ def download():
     try:
         subprocess.run(ytdlp_cmd, check=True)
         final_path = filename_base + final_ext
+
+        # Schedule deletion after 60 seconds
         schedule_file_deletion(final_path, delay=60)
+
         return send_file(final_path, as_attachment=True)
     except subprocess.CalledProcessError as e:
         return jsonify({"error": "Download failed", "details": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host="0.0.0.0", port=port)
